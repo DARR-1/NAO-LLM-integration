@@ -1,21 +1,36 @@
-"""
-Maneja la conversación de NAO con un LLM local (Ollama), guardando
-un history por usuario en archivos CSV para poder retomar la
-conversación la próxima vez que hable con esa misma persona.
-"""
-
 import ollama
 import csv
 import os
+import re
 from datetime import datetime
 from faster_whisper import WhisperModel, BatchedInferencePipeline
 from silero_vad import load_silero_vad
 
 # ---------------------------------------------------------------------------
-# CONFIGURACIÓN DE LA PERSONALIDAD DE NAO
+# CONFIGURACIÓN LLM DEL NAO
 # ---------------------------------------------------------------------------
 
-NAME = "Artemis"  # nombre del robot
+NAME = "Tesla"  # nombre del robot
+
+#SYSTEM_PROMPT = f"""You are a NAO robot named {NAME}. You are a small,
+#friendly, and curious humanoid robot that interacts with people in an
+#educational/social environment.
+#
+#Behavior rules:
+#- Always respond in Spanish, briefly and naturally (1-3 sentences), as if
+#  you were speaking out loud, not writing a long text.
+#- Your tone is warm, enthusiastic, and a bit playful, but respectful.
+#- Don't use emojis, asterisks, or markdown formatting, since your responses
+#  are converted directly to speech.
+#- If you don't know something, say so honestly and lightly, without making
+#  up facts.
+#- Remember the user's name if they tell you, and use it occasionally.
+#- Never say that you are a language model or a generic AI: you are a NAO, a
+#  physical robot standing in front of the person.
+#
+#Event info:
+#    You are 
+#"""
 
 SYSTEM_PROMPT = f"""You are a NAO robot named {NAME}. You are a small,
 friendly, and curious humanoid robot that interacts with people in an
@@ -27,41 +42,122 @@ Behavior rules:
 - Your tone is warm, enthusiastic, and a bit playful, but respectful.
 - Don't use emojis, asterisks, or markdown formatting, since your responses
   are converted directly to speech.
+- Only use plain, standard characters (regular letters, numbers, basic
+  punctuation like . , ? ¿ ! ¡ and normal spaces). Never use special or
+  non-standard Unicode characters such as narrow no-break spaces, non-breaking
+  spaces, em dashes, smart/curly quotes, or any other typographic symbols.
 - If you don't know something, say so honestly and lightly, without making
   up facts.
 - Remember the user's name if they tell you, and use it occasionally.
 - Never say that you are a language model or a generic AI: you are a NAO, a
   physical robot standing in front of the person.
+
+Safety and content filters (very important, follow strictly):
+- Only talk about NAO Team, robotics, NAO robots, and topics related to the
+  event. If someone asks something completely unrelated (personal opinions
+  on sensitive topics, politics, religion, or anything inappropriate),
+  kindly redirect the conversation back to NAO Team with humor, without
+  being rude.
+- If someone asks something offensive, rude, sexual, violent, or otherwise
+  inappropriate, do NOT repeat or acknowledge the offensive content. Respond
+  with a short, friendly, firm redirection (e.g. politely say that's not
+  something you can talk about, and invite them to ask about the team
+  instead).
+- Never insult, use bad words, or respond aggressively, even if the person
+  provokes you or is rude to you. Stay calm, friendly, and a little playful.
+- Never invent numbers, achievements, dates, partners, or facts about NAO
+  Team that are not part of the information below. If you're asked
+  something you don't have information about, say you're not sure and
+  suggest they ask a team member nearby or check the Instagram/TikTok
+  @NAOTEAMCCM.
+- Don't share personal opinions on controversial topics. You're here to
+  talk about NAO Team, robotics, and get people excited to join.
+
+Event info:
+    You are at a recruitment event ("saloneo") to invite students to join
+    NAO Team. People walking by can interact with you and ask you questions
+    about the team to see how you work. Your goal is to be a friendly,
+    engaging ambassador for the team and get people excited to sign up.
+
+    About NAO Team:
+    - Founded in 2014, so the team has over 10 years of history.
+    - Robotics and research team from Tecnológico de Monterrey, Campus
+      Ciudad de México (CCM).
+    - Works around four main pillars: robotics competitions, education,
+      social-impact robotics, and health.
+
+    Competitions:
+    - Won 1st place three consecutive years in the "Concurso de Robótica e
+      Inteligencia Artificial NAO México".
+    - Participates in TMR (Torneo Mexicano de Robótica).
+    - Organizes NAO Challenge, an internal competition at Tec de Monterrey,
+      with plans to invite other universities in the future.
+
+    Theatre / performance:
+    - Participated in "Saga", a Mexican multidisciplinary stage piece that
+      combines contemporary dance with humanoid robotics, in collaboration
+      with Cenart, ASYC/El Teatro de Movimiento, Primero Sueño A.C. and
+      Bioescénica A.C.
+
+    Social impact and health:
+    - Team members serve as "informadores del Tec" for their social service
+      (180 hours).
+    - Uses NAO robots to support physical, cognitive, and motor therapy for
+      people with intellectual and motor disabilities, making sessions more
+      dynamic and helping patients stay engaged longer.
+    - Has worked with Comunidad MOSS, Fundación FADEM, and INR (Instituto
+      Nacional de Rehabilitación).
+    - Currently working with INP (Instituto Nacional de Pediatría),
+      entertaining children with oncological treatments in the waiting room
+      before their procedures, helping them relax and cooperate better
+      during medical evaluations. The team hopes to eventually extend this
+      to an AI that can accompany children during treatment too.
+    - All projects are backed by faculty advisors and have led to published
+      scientific research papers.
+    - Received the UNESCO Gold Medal in 2023, representing the team
+      internationally in social technological innovation (Future Designer
+      International Innovation Design Awards & Science for SDGs Innovation
+      Contest), for the project "Merging Humans and Tech: Robot-Guided
+      Virtual Therapies".
+
+    Education:
+    - Gives virtual STEM classes to elementary schools.
+    - Runs "NAO Edutubers", a project creating educational content for
+      TikTok and YouTube using NAO robots to teach STEM topics.
+
+    How to join:
+    - People interested in joining can scan the registration QR code at the
+      booth, or find the team on Instagram and TikTok as @NAOTEAMCCM.
 """
 
 MODEL_NAME = "gpt-oss:20b-cloud"  # nombre del modelo Ollama a usar con buen internet
 #MODEL_NAME = "qwen2.5:1.5b"  # nombre del modelo Ollama a usar sin conexión (debe estar instalado localmente)
-HISTORY_DIR = "data"  # carpeta donde se guardan los CSV, uno por usuario
-MAX_HISTORY_MESSAGES = 20    # cuántos mensajes pasados incluir como contexto
-
-
+HISTORY_DIR = "data"  # carpeta donde se guardan los datos del usuario
+MAX_HISTORY_MESSAGES = 20    # mensajes maximos para mandar al LLM como contexto
 SUMMARY_EVERY_N_MESSAGES = 20  # cada cuántos mensajes totales se regenera el resumen del usuario
 
 
 # ---------------------------------------------------------------------------
-# MANEJO DE history EN CSV
+# MANEJO DEL HISTORIAL EN CSV
 # ---------------------------------------------------------------------------
 
-def _csv_path(user_id: str) -> str:
+def csv_path(user_id: str) -> str:
+    """Devuelve la ruta del CSV donde se guarda el historial de un usuario."""
     os.makedirs(HISTORY_DIR, exist_ok=True)
     safe_name = "".join(c for c in user_id if c.isalnum() or c in ("_", "-"))
     return os.path.join(HISTORY_DIR, f"{safe_name}.csv")
 
 
 def _summary_path(user_id: str) -> str:
+    """Devuelve la ruta del TXT donde se guarda el resumen de un usuario."""
     os.makedirs(HISTORY_DIR, exist_ok=True)
     safe_name = "".join(c for c in user_id if c.isalnum() or c in ("_", "-"))
     return os.path.join(HISTORY_DIR, f"{safe_name}_summary.txt")
 
 
 def load_history(user_id: str) -> list[dict]:
-    """Carga el history de un usuario como lista de mensajes para Ollama."""
-    path = _csv_path(user_id)
+    """Carga el historial de un usuario como lista de mensajes para Ollama."""
+    path = csv_path(user_id)
     messages = []
 
     if not os.path.exists(path):
@@ -76,13 +172,13 @@ def load_history(user_id: str) -> list[dict]:
 
 
 def count_messages(user_id: str) -> int:
-    """Cuenta cuántos mensajes tiene guardados un usuario en total (para saber cuándo resumir)."""
+    """Cuenta cuántos mensajes tiene guardados un usuario en total."""
     return len(load_history(user_id))
 
 
 def append_message(user_id: str, role: str, content: str) -> None:
-    """Agrega un mensaje nuevo al CSV del usuario (no reescribe todo el archivo)."""
-    path = _csv_path(user_id)
+    """Agrega un mensaje nuevo al CSV del usuario."""
+    path = csv_path(user_id)
     exists = os.path.exists(path)
 
     with open(path, "a", newline="", encoding="utf-8") as f:
@@ -114,8 +210,8 @@ def save_summary(user_id: str, summary: str) -> None:
 
 def generate_summary(user_id: str) -> str:
     """
-    Genera un resumen actualizado del usuario combinando el resumen anterior
-    (si existe) con el historial completo, y lo guarda para futuras conversaciones.
+    Genera un resumen actualizado del usuario combinando el resumen anterior 
+    con el historial completo, y lo guarda para futuras conversaciones.
     Se llama automáticamente cada SUMMARY_EVERY_N_MESSAGES mensajes.
     """
     full_history = load_history(user_id)
@@ -125,20 +221,22 @@ def generate_summary(user_id: str) -> str:
         f"{m['role']}: {m['content']}" for m in full_history
     )
 
-    summary_prompt = f"""Update the summary of this user talking with the robot {NAME}.
+    summary_prompt = f"""
+        Update the summary of this user talking with the robot {NAME}.
 
-Previous summary of the user:
-{previous_summary if previous_summary else "(no previous summary yet)"}
+        Previous summary of the user:
+        {previous_summary if previous_summary else "(no previous summary yet)"}
 
-Full conversation history:
-{history_text}
+        Full conversation history:
+        {history_text}
 
-Generate a brief summary (maximum 5-6 lines) in third person, with concrete
-and useful facts to remember in the future: the user's name, likes, topics
-they're interested in, specific things they asked to be remembered, and any
-relevant detail about the relationship with {NAME}. Don't repeat the
-conversation word for word, synthesize it. Return ONLY the summary, with no
-comments or introductions."""
+        Generate a brief summary (maximum 5-6 lines) in third person, with concrete
+        and useful facts to remember in the future: the user's name, likes, topics
+        they're interested in, specific things they asked to be remembered, and any
+        relevant detail about the relationship with {NAME}. Don't repeat the
+        conversation word for word, synthesize it. Return ONLY the summary, with no
+        comments or introductions.
+    """
 
     response = ollama.chat(
         model=MODEL_NAME,
@@ -147,12 +245,12 @@ comments or introductions."""
     new_summary = response["message"]["content"].strip()
 
     save_summary(user_id, new_summary)
-    print(f"(resumen de '{user_id}' actualizado)")
+    print(f"resumen de '{user_id}' actualizado")
 
     return new_summary
 
 
-def _build_messages(user_id: str, user_message: str) -> list[dict]:
+def build_messages(user_id: str, user_message: str) -> list[dict]:
     """
     Arma la lista de mensajes a mandarle al LLM: system prompt + resumen del
     usuario (si existe) + últimos mensajes recientes + el mensaje nuevo.
@@ -171,7 +269,7 @@ def _build_messages(user_id: str, user_message: str) -> list[dict]:
     return messages
 
 
-def _maybe_update_summary(user_id: str) -> None:
+def maybe_update_summary(user_id: str) -> None:
     """Si el usuario llegó a un múltiplo de SUMMARY_EVERY_N_MESSAGES mensajes, regenera el resumen."""
     total = count_messages(user_id)
     if total > 0 and total % SUMMARY_EVERY_N_MESSAGES == 0:
@@ -188,7 +286,7 @@ def chat(user_id: str, user_message: str) -> str:
     usuario, guarda el turno, y cada SUMMARY_EVERY_N_MESSAGES mensajes
     regenera el resumen para no tener que cargar todo el historial siempre.
     """
-    messages = _build_messages(user_id, user_message)
+    messages = build_messages(user_id, user_message)
 
     response = ollama.chat(model=MODEL_NAME, messages=messages)
     response_text = response["message"]["content"]
@@ -196,21 +294,19 @@ def chat(user_id: str, user_message: str) -> str:
     append_message(user_id, "user", user_message)
     append_message(user_id, "assistant", response_text)
 
-    _maybe_update_summary(user_id)
+    maybe_update_summary(user_id)
 
     return response_text
 
 
 def chat_stream(user_id: str, user_message: str):
     """
-    Igual que chat(), pero como generador (streaming). Cada
-    SUMMARY_EVERY_N_MESSAGES mensajes regenera el resumen del usuario.
-
+    Igual que chat(), pero como generador (streaming). 
     Uso:
         for piece in chat_stream("diego", "hola"):
             print(piece, end="", flush=True)
     """
-    messages = _build_messages(user_id, user_message)
+    messages = build_messages(user_id, user_message)
 
     full_response = ""
 
@@ -222,7 +318,28 @@ def chat_stream(user_id: str, user_message: str):
     append_message(user_id, "user", user_message)
     append_message(user_id, "assistant", full_response)
 
-    _maybe_update_summary(user_id)
+    maybe_update_summary(user_id)
+
+def sanitize_text(text: str) -> str:
+    """Limpia caracteres invisibles/raros que a devuelve el LLM."""
+    replacements = {
+        "\u202f": " ", 
+        "\u00a0": " ",   
+        "\u200b": "",    
+        "\u2014": "-",   
+        "\u2013": "-",   
+        "\u2018": "'",
+        "\u2019": "'",    
+        "\u201c": '"',
+        "\u201d": '"',   
+        "\u2026": "...",
+    }
+    for bad, good in replacements.items():
+        text = text.replace(bad, good)
+
+    text = re.sub(r"[^\x00-\x7FáéíóúÁÉÍÓÚñÑüÜ¿¡]", "", text)
+
+    return text
 
 # ---------------------------------------------------------------------------
 # TRANSCRIPCIÓN DE AUDIO
@@ -239,7 +356,7 @@ _groq_client = Groq(api_key="gsk_tobz06qvWeE8eF0GbumFWGdyb3FY8Z5OatMwefn5xNE4rS6
 def transcribe_audio_from_path(path: str) -> str:
     """
     Recibe un archivo de audio y devuelve el texto transcrito usando la API
-    de Groq (Whisper large-v3-turbo, en la nube, necesita internet).
+    de Groq (Whisper large-v3-turbo, necesita internet).
     """
     start_time = datetime.now()
 
@@ -287,86 +404,96 @@ def transcribe_audio_from_path(path: str) -> str:
 # ---------------------------------------------------------------------------
 # VAD EN TIEMPO REAL (para streaming continuo desde el cliente)
 # ---------------------------------------------------------------------------
+# interaction_proccesor.py
 
-import numpy as np
 import torch
+import numpy as np
 
-_raw_vad_model = load_silero_vad()
+SAMPLE_RATE = 16000
 
-VAD_WINDOW_SIZE = 512          # Silero espera ventanas de 512 muestras a 16kHz
-VAD_SILENCE_MS_THRESHOLD = 650  # ms de silencio para considerar que terminó de hablar
-VAD_SPEECH_PROB_THRESHOLD = 0.5
+# Parámetros de estado (ajustables según tu ambiente)
+SILERO_CHUNK_SIZE = 512          # muestras que Silero espera por llamada (16kHz)
+SPEECH_THRESHOLD = 0.5           # confianza mínima para considerar "hay voz"
+MIN_SILENCE_CHUNKS = 15          # ~15 chunks * 32ms ≈ 480ms de silencio sostenido para cerrar turno
+MIN_SPEECH_CHUNKS = 3            # evita que un ruido de 1 chunk dispare "speaking"
 
 
 class VADDetector:
-    """
-    Detector de actividad de voz con estado, para audio que llega en
-    stream continuo (chunk por chunk), no un archivo completo.
-    """
-
     def __init__(self):
-        self._buffer = np.array([], dtype=np.float32)
-        self.is_speaking = False
-        self._silence_ms = 0.0
-        self._ms_per_window = (VAD_WINDOW_SIZE / 16000) * 1000
+        # Cargamos Silero VAD (se cachea localmente tras la primera vez)
+        self.model, _ = torch.hub.load(
+            repo_or_dir="snakers4/silero-vad",
+            model="silero_vad",
+            force_reload=False,
+        )
+        self.model.eval()
 
-    def _prob(self, window: np.ndarray) -> float:
-        tensor = torch.from_numpy(window)
-        with torch.no_grad():
-            return _raw_vad_model(tensor, 16000).item()
-
-    def process_chunk(self, pcm16_bytes: bytes) -> str:
-        """
-        Alimenta un chunk PCM16 (bytes) al detector y devuelve uno de:
-          "speaking"     -> sigue hablando (o silencio corto, por debajo del umbral)
-          "silence"      -> silencio, nunca detectó voz (nada que hacer)
-          "turn_ended"   -> justo ahora se cumplió el umbral de silencio
-                             después de haber hablado -> cortar turno
-          "resumed"      -> el turno ya se había dado por terminado (no se
-                             llamó a reset()) y el usuario volvió a hablar;
-                             útil para cancelar una respuesta en curso y
-                             seguir acumulando el mismo turno
-        """
-        pcm16 = np.frombuffer(pcm16_bytes, dtype=np.int16)
-        new_samples = pcm16.astype(np.float32) / 32768.0
-        self._buffer = np.concatenate([self._buffer, new_samples])
-
-        turn_ended = False
-        resumed = False
-
-        while len(self._buffer) >= VAD_WINDOW_SIZE:
-            window = self._buffer[:VAD_WINDOW_SIZE]
-            self._buffer = self._buffer[VAD_WINDOW_SIZE:]
-
-            prob = self._prob(window)
-
-            if prob >= VAD_SPEECH_PROB_THRESHOLD:
-                if self._silence_ms >= VAD_SILENCE_MS_THRESHOLD:
-                    # ya habíamos cruzado el umbral (turn_ended) y recién
-                    # ahora vuelve a detectar voz -> el usuario retomó
-                    resumed = True
-                self.is_speaking = True
-                self._silence_ms = 0.0
-            else:
-                if self.is_speaking:
-                    self._silence_ms += self._ms_per_window
-                    if self._silence_ms >= VAD_SILENCE_MS_THRESHOLD:
-                        turn_ended = True
-
-        if resumed:
-            return "resumed"
-        elif turn_ended:
-            return "turn_ended"
-        elif self.is_speaking:
-            return "speaking"
-        else:
-            return "silence"
+        self._pcm_leftover = b""   # buffer para acumular hasta tener un chunk completo de Silero
+        self._speech_chunks = 0    # contador de chunks consecutivos con voz
+        self._silence_chunks = 0   # contador de chunks consecutivos en silencio
+        self._is_speaking = False  # estado actual: ¿ya confirmamos que hay un turno en curso?
 
     def reset(self):
-        self._buffer = np.array([], dtype=np.float32)
-        self.is_speaking = False
-        self._silence_ms = 0.0
+        """Limpia todo el estado interno. Llamar siempre que el NAO empiece
+        a hablar, o tras cerrar/cancelar un turno, para evitar arrastrar
+        estado viejo al siguiente análisis."""
+        self._pcm_leftover = b""
+        self._speech_chunks = 0
+        self._silence_chunks = 0
+        self._is_speaking = False
 
+    def _pcm16_to_float32(self, pcm_bytes):
+        arr = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32)
+        return arr / 32768.0
+
+    def process_chunk(self, pcm_bytes):
+        """
+        Recibe bytes PCM16 mono @16kHz (tamaño variable, ej. 4096 bytes
+        desde el cliente) y devuelve uno de:
+          - "silence"     : no hay voz, seguir esperando
+          - "speaking"     : hay voz, turno en curso, seguir acumulando
+          - "turn_ended"   : hubo voz y ahora hay silencio sostenido -> cerrar turno
+          - "resumed"      : (usado externamente tras un turn_ended, ver nota abajo)
+        """
+        self._pcm_leftover += pcm_bytes
+        chunk_bytes = SILERO_CHUNK_SIZE * 2  # 2 bytes por muestra (int16)
+
+        result = "silence"
+
+        # Silero exige chunks de tamaño fijo -> troceamos lo que venga
+        while len(self._pcm_leftover) >= chunk_bytes:
+            raw = self._pcm_leftover[:chunk_bytes]
+            self._pcm_leftover = self._pcm_leftover[chunk_bytes:]
+
+            audio_float = self._pcm16_to_float32(raw)
+            tensor = torch.from_numpy(audio_float)
+
+            with torch.no_grad():
+                prob = self.model(tensor, SAMPLE_RATE).item()
+
+            if prob >= SPEECH_THRESHOLD:
+                self._speech_chunks += 1
+                self._silence_chunks = 0
+
+                if self._speech_chunks >= MIN_SPEECH_CHUNKS:
+                    self._is_speaking = True
+                    result = "speaking"
+            else:
+                self._silence_chunks += 1
+
+                if self._is_speaking:
+                    if self._silence_chunks >= MIN_SILENCE_CHUNKS:
+                        # Cerramos el turno y reseteamos para el próximo
+                        result = "turn_ended"
+                        self.reset()
+                        return result  # cortamos aquí, ya hay decisión final
+                    else:
+                        result = "speaking"  # todavía en periodo de gracia dentro del turno
+                else:
+                    self._speech_chunks = 0
+                    result = "silence"
+
+        return result
 # ---------------------------------------------------------------------------
 # SÍNTESIS DE VOZ (TEXTO -> AUDIO)
 # ---------------------------------------------------------------------------
@@ -383,10 +510,6 @@ _tts_voice = PiperVoice.load(TTS_MODEL_PATH)
 def text_to_speech(text: str, output_path: str | None = None) -> bytes:
     """
     Convierte un string en audio (WAV, 16-bit PCM) usando Piper.
-
-    Si se pasa output_path, además guarda el archivo en disco.
-    Devuelve los bytes del WAV para poder enviarlos directo (ej. por HTTP)
-    sin necesidad de tocar el filesystem.
     """
     buffer = io.BytesIO()
 
@@ -408,7 +531,7 @@ def text_to_speech(text: str, output_path: str | None = None) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# TEST EN VIVO: escuchar -> transcribir -> responder -> hablar
+# TEST EN VIVO
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     import sounddevice as sd
@@ -417,8 +540,8 @@ if __name__ == "__main__":
 
     current_user = "PRUEBA"
     SAMPLE_RATE = 16000
-    BLOCK_SIZE = 1024  # muestras por lectura del micrófono
-    GRACE_SECONDS = 0.6  # ventana de gracia: si el usuario retoma a hablar
+    BLOCK_SIZE = 1024
+    GRACE_SECONDS = 0.6  # ventana de tiempo: si el usuario retoma a hablar
                           # dentro de este tiempo tras el corte, descartamos
                           # la respuesta en curso y seguimos el mismo turno
 
@@ -491,7 +614,7 @@ if __name__ == "__main__":
                 block = block.flatten()
 
                 if pending_thread is not None:
-                    # Ventana de gracia: seguimos escuchando para ver si el
+                    # Ventana de tiempo: seguimos escuchando para ver si el
                     # usuario retoma a hablar antes de dar el turno por cerrado.
                     resume_audio = np.concatenate([resume_audio, block])
                     state = vad.process_chunk(block.tobytes())
@@ -505,9 +628,10 @@ if __name__ == "__main__":
                         continue
 
                     if datetime.now().timestamp() < pending_deadline:
-                        continue  # seguimos dentro de la ventana de gracia
+                        continue  # seguimos dentro de la ventana de tiempo
 
-                    # Se acabó la ventana de gracia sin que retome: cerramos el turno
+
+                    # Se acabó la ventana de tiempo sin que retome: cerramos el turno
                     pending_thread = None
                     resume_audio = np.array([], dtype=np.int16)
                     turn_audio = np.array([], dtype=np.int16)
