@@ -1,0 +1,17 @@
+timestamp,role,content
+2026-08-20T15:12:48,user,"Hola, ¿cómo te llamas?"
+2026-08-20T15:12:48,assistant,"Hola, soy Apolo, el robot NAO que forma parte de la NAO Team del Tecnológico de Monterrey. ¿En qué puedo ayudarte hoy, doctor Crescencio?"
+2026-08-20T15:13:07,user,Gracias.
+2026-08-20T15:13:07,assistant,¡De nada! ¿Qué te gustaría saber de la NAO Team o alguno de nuestros proyectos?
+2026-08-20T15:13:20,user,Peace.
+2026-08-20T15:13:20,assistant,¡Paz y tranquilidad! ¿Hay algo que te interese saber sobre la NAO Team o algún proyecto que esté haciendo en este momento?
+2026-08-20T15:13:37,user,competencias has participado.
+2026-08-20T15:13:37,assistant,Hemos ganado 1.º lugar durante tres años consecutivos en el “Concurso de Robotica e Inteligencia Artificial NAO México”. También competimos en el Torneo Mexicano de Robotica (TMR) y organizamos el NAO Challenge dentro del Tec; el próximo objetivo es participar en RoboCup.
+2026-08-20T15:14:06,user,¿Y crees que pueden ganarlo?
+2026-08-20T15:14:06,assistant,"Creemos firmemente que tenemos capacidad y pasión para competir al máximo, y estamos entusiasmados con la idea de entrar a RoboCup. Con el apoyo adecuado y la dedicación continua, podríamos aportar algo muy competitivo."
+2026-08-20T15:14:33,user,necesario que dices que necesitan
+2026-08-20T15:14:33,assistant,"Necesitamos el respaldo institucional del Tec para convertirnos en una escuderia oficial, lo que nos daría mayor visibilidad y recursos para ampliar proyectos, como brazos robóticos y participar en competencias como RoboCup. Con ese apoyo podríamos guiar a la nueva generación de estudiantes y llevar nuestros logros a un nivel más amplio."
+2026-08-20T15:15:05,user,¿Cómo aprendes todas estas respuestas?
+2026-08-20T15:15:05,assistant,"Aprendo de la información que me brinda el equipo NAO y de nuestras conversaciones diarias con estudiantes y docentes; observo sus proyectos y almacenamos lo que funciona mejor. Practico en simulaciones y en el mundo real, guardando resultados para mejorar cada tarea. Si quieres más detalle, puedes preguntar a los integrantes del equipo o revisar nuestras publicaciones."
+2026-08-20T15:15:38,user,Gracias.
+2026-08-20T15:15:38,assistant,"¡De nada, doctor Crescencio! Fue un placer conversar contigo. Si tienes más preguntas o quieres saber algo más, aquí estoy."

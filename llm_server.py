@@ -11,7 +11,7 @@ SAMPLE_RATE = 16000
 SAMPLE_WIDTH = 2
 CHANNELS = 1
 
-USER_ID = "Saloneo"  # Usuario default
+USER_ID = "Crescencio"  # Usuario default
 OFFSET_SECONDS = 0.6  # si el usuario retoma a hablar dentro
                       # de este tiempo tras el corte, cancelamos la respuesta
                       # en curso y seguimos el mismo turno

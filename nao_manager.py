@@ -37,7 +37,7 @@ aas.setBodyLanguageMode(1)  # 0: none, 1: context, 2: random
 ws = websocket.create_connection("ws://%s:%d" % (SERVER_IP, SERVER_PORT))
 ws_lock = threading.Lock()
 print("Conectado al servidor")
-user_id = "Saloneo"
+user_id = "Crescencio"
 
 
 # ============================================================
